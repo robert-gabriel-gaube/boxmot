@@ -317,7 +317,8 @@ class ImprAssocTrack(BaseTracker):
             else:
                 active_tracks.append(track)
 
-        '''Improved Association: First they calc the cost matrix of the high
+        '''
+        Improved Association: First they calc the cost matrix of the high
         detections(func_1 -> cost_h), then the calc the cost matrix of the low
         detections (func_2 -> cost_l) and get the max values of both. Then
         B = det_h_max / det_l_max.

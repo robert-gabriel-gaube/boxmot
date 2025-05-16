@@ -18,6 +18,7 @@ import threading
 import sys
 import copy
 import concurrent.futures
+import cv2
 
 from boxmot import TRACKERS
 from boxmot.tracker_zoo import create_tracker
@@ -26,6 +27,7 @@ from boxmot.utils.checks import RequirementsChecker
 from boxmot.utils.torch_utils import select_device
 from boxmot.utils.misc import increment_path
 from boxmot.postprocessing.gsi import gsi
+from boxmot.utils.clustering import cluster_detections
 
 from ultralytics import YOLO
 from ultralytics.data.loaders import LoadImagesAndVideos
@@ -127,6 +129,29 @@ def prompt_overwrite(path_type: str, path: str, ci: bool = True) -> bool:
 
     return input_with_timeout(f"{path_type} {path} already exists. Overwrite? [y/N]: ")
 
+def show_clusters(frame_idx_num, dets, img, clusters, noise):
+    # assign each cluster a random color
+    colors = {cid: tuple(np.random.randint(0,255,3).tolist())
+                for cid in clusters}
+    # draw clustered boxes
+    for cid, idxs in clusters.items():
+        col = colors[cid]
+        for i in idxs:
+            x1,y1,x2,y2 = dets[i,1:5].astype(int)
+            cv2.rectangle(img, (x1,y1), (x2,y2), col, 2)
+            cv2.putText(img, f"C{cid}", (x1, y1-5),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, col, 2)
+    # draw noise in gray
+    for i in noise:
+        x1,y1,x2,y2 = dets[i,1:5].astype(int)
+        cv2.rectangle(img, (x1,y1), (x2,y2), (200,200,200), 1)
+        cv2.putText(img, "n", (x1, y1-5),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200,200,200), 1)
+    # show the frame
+    cv2.imwrite(f"cluster_viz/frame_{frame_idx_num:06d}.png", img)
+    cv2.imshow("clusters", img)
+    if cv2.waitKey(1) == 27:   # press Esc to exit early
+        return
 
 def generate_dets_embs(args: argparse.Namespace, y: Path, source: Path) -> None:
     """
@@ -208,6 +233,7 @@ def generate_dets_embs(args: argparse.Namespace, y: Path, source: Path) -> None:
 
     for frame_idx, r in enumerate(tqdm(results, desc="Frames")):
         nr_dets = len(r.boxes)
+        frame_idx_num = frame_idx
         frame_idx = torch.full((1, 1), frame_idx + 1).repeat(nr_dets, 1)
         img = r.orig_img
 
@@ -228,6 +254,15 @@ def generate_dets_embs(args: argparse.Namespace, y: Path, source: Path) -> None:
 
         with open(str(dets_path), 'ab+') as f:
             np.savetxt(f, dets, fmt='%f')
+
+        clusters, noise = cluster_detections(
+            dets[:, 1:5],
+            img.shape[:2],   
+            eps=0.075, 
+            min_samples=3
+        )
+        
+        show_clusters(frame_idx_num, dets, img, clusters, noise)
 
         for reid, reid_model_name in zip(reids, args.reid_model):
             embs = reid.get_features(dets[:, 1:5], img)
@@ -403,6 +438,9 @@ def run_generate_dets_embs(opt: argparse.Namespace) -> None:
     Args:
         opt (Namespace): Parsed command line arguments.
     """
+    os.makedirs("cluster_viz", exist_ok=True)
+
+    LOGGER.info(f"y in {opt.yolo_model}")
     mot_folder_paths = sorted([item for item in Path(opt.source).iterdir()])
     for y in opt.yolo_model:
         for i, mot_folder_path in enumerate(mot_folder_paths):
