@@ -6,6 +6,7 @@ from pathlib import Path
 from torch import device
 from collections import defaultdict
 from typing import List, Dict
+import os
 
 from boxmot.appearance.reid.auto_backend import ReidAutoBackend
 from boxmot.motion.cmc.sof import SOF
@@ -283,6 +284,50 @@ class ImprAssocTrack(BaseTracker):
 
         self.cmc = SOF()
 
+    def save_hyperparameters(self, path: str):
+        """
+        Append current hyperparameters as one space-separated line
+        to the given file (will create it if missing).
+        """
+        # ensure directory exists
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+
+        # pack the values in the desired order
+        vals = [
+            self.track_high_thresh,
+            self.track_low_thresh,
+            self.new_track_thresh,
+            self.match_thresh,
+            self.second_match_thresh,
+            self.overlap_thresh,
+            self.lambda_,
+            self.proximity_thresh,
+        ]
+        # build the line
+        line = " ".join(str(v) for v in vals) + "\n"
+
+        # append
+        with open(path, "a") as f:
+            f.write(line)
+
+    def update_hyperparameters(self, 
+                               track_high_thresh=0.6, 
+                               track_low_thresh=0.1, 
+                               new_track_thresh=0.7, 
+                               match_thresh=0.65, 
+                               second_match_thresh=0.19, 
+                               overlap_thresh=0.55,
+                               lambda_=0.2,
+                               proximity_thresh=0.1):
+        
+        self.track_high_thresh = track_high_thresh
+        self.track_low_thresh = track_low_thresh
+        self.new_track_thresh = new_track_thresh
+        self.match_thresh = match_thresh
+        self.second_match_thresh = second_match_thresh
+        self.overlap_thresh = overlap_thresh
+        self.lambda_ = lambda_
+        self.proximity_thresh = proximity_thresh
 
     @BaseTracker.setup_decorator
     @BaseTracker.per_class_decorator
@@ -388,12 +433,35 @@ class ImprAssocTrack(BaseTracker):
         for cid, detections in clustered_first_detections.items():
             detections_second = clustered_second_detections.get(cid, [])
 
+            cluster_size = len(detections) + len(detections_second)
+
+            if cid == -1:
+                self.update_hyperparameters()
+            elif cluster_size > 9:
+                self.update_hyperparameters(track_high_thresh=0.75,
+                                            track_low_thresh=0.2,
+                                            new_track_thresh=0.8,
+                                            match_thresh=0.55,
+                                            second_match_thresh=0.12,
+                                            overlap_thresh=0.45,
+                                            lambda_=0.1,
+                                            proximity_thresh=0.05)
+            elif cluster_size > 4:
+                self.update_hyperparameters(track_high_thresh=0.65,
+                                            track_low_thresh=0.15,
+                                            new_track_thresh=0.75,
+                                            match_thresh=0.6,
+                                            second_match_thresh=0.15,
+                                            overlap_thresh=0.5,
+                                            lambda_=0.15,
+                                            proximity_thresh=0.075)
+            else:
+                self.update_hyperparameters()
+
             # Associate with high score detection boxes
             d_ious_dists = d_iou_distance(strack_pool, detections)
             ious = 1 - iou_distance(strack_pool, detections)
             ious_dists_mask = (ious < self.proximity_thresh) # o_min in ImprAssoc paper
-
-            num_high_detections = len(detections)
 
             if self.with_reid:
                 # Improved Association Version (CD)
