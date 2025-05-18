@@ -4,6 +4,8 @@ import numpy as np
 from collections import deque
 from pathlib import Path
 from torch import device
+from collections import defaultdict
+from typing import List, Dict
 
 from boxmot.appearance.reid.auto_backend import ReidAutoBackend
 from boxmot.motion.cmc.sof import SOF
@@ -14,7 +16,7 @@ from boxmot.utils.matching import (embedding_distance, fuse_score,
                                    d_iou_distance)
 from boxmot.utils.ops import xywh2xyxy, xyxy2xywh
 from boxmot.trackers.basetracker import BaseTracker
-
+from boxmot.utils.clustering import cluster_detections
 
 class STrack(BaseTrack):
     shared_kalman = KalmanFilterXYWH()
@@ -23,7 +25,8 @@ class STrack(BaseTrack):
         self.xywh = xyxy2xywh(det[0:4])  # (x1, y1, x2, y2) --> (xc, yc, w, h)
         self.conf = det[4]
         self.cls = det[5]
-        self.det_ind = det[6]
+        self.cluster_ind = det[6]
+        self.det_ind = det[7]
         self.max_obs=max_obs
         self.kalman_filter = None
         self.mean, self.covariance = None, None
@@ -33,6 +36,8 @@ class STrack(BaseTrack):
         self.history_observations = deque([], maxlen=self.max_obs)
 
         self.tracklet_len = 0
+
+        self.initial_feat = feat
 
         self.smooth_feat = None
         self.curr_feat = None
@@ -187,6 +192,21 @@ class STrack(BaseTrack):
         return ret
 
 
+def group_stracks_by_cluster(stracks: List[STrack]) -> Dict[int, List[STrack]]:
+    """
+    Args:
+        stracks: list of STrack objects, each with an integer .cluster_ind attribute
+    Returns:
+        A dict where each key is a cluster_ind, and its value is the list of
+        STracks belonging to that cluster.
+    """
+    clusters = defaultdict(list)
+    for tr in stracks:
+        cid = int(getattr(tr, "cluster_ind", -1))
+        clusters[cid].append(tr)
+    return dict(clusters)
+
+
 class ImprAssocTrack(BaseTracker):
     """
     ImprAssocTrack Tracker: A tracking algorithm that utilizes a combination of appearance and motion-based tracking.
@@ -270,12 +290,20 @@ class ImprAssocTrack(BaseTracker):
         self.check_inputs(dets, img)
 
         self.frame_count += 1
-        activated_starcks = []
+        activated_stracks = []
         refind_stracks = []
         lost_stracks = []
         removed_stracks = []
 
-        dets = np.hstack([dets, np.arange(len(dets)).reshape(-1, 1)])
+        cluster_labels = cluster_detections(
+            dets[:, :4],
+            img.shape[:2],   
+            eps=0.07, 
+            min_samples=2
+        )
+
+        dets = np.hstack([dets, cluster_labels.reshape(-1, 1)]) 
+        dets = np.hstack([dets, np.arange(len(dets)).reshape(-1, 1)])  
 
         # Remove bad detections
         confs = dets[:, 4]
@@ -297,19 +325,8 @@ class ImprAssocTrack(BaseTracker):
                 # (Ndets x X) [512, 1024, 2048]
                 features_high = self.model.get_features(dets_first[:, 0:4], img)
 
-        if len(dets) > 0:
-            """Detections"""
-            if self.with_reid:
-                detections = [STrack(det, f, max_obs=self.max_obs) for (det, f) in zip(dets_first, features_high)]
-            else:
-                detections = [STrack(det, max_obs=self.max_obs) for (det) in np.array(dets_first)]
-        else:
-            detections = []
-
         """ Add newly detected tracklets to active_tracks"""
         unconfirmed = []
-        low_tent = []
-        high_tent = []
         active_tracks = []  # type: list[STrack]
         for track in self.active_tracks:
             if not track.is_activated:
@@ -336,39 +353,14 @@ class ImprAssocTrack(BaseTracker):
         # Predict the current location with KF
         STrack.multi_predict(strack_pool)
 
-        # Associate with high score detection boxes
-        d_ious_dists = d_iou_distance(strack_pool, detections)
-        ious = 1 - iou_distance(strack_pool, detections)
-        ious_dists_mask = (ious < self.proximity_thresh) # o_min in ImprAssoc paper
-
-        num_high_detections = len(detections)
-
-        if self.with_reid:
-            # ConfTrack version
-            # emb_dists = embedding_distance(strack_pool, detections) / 2.0
-            # raw_emb_dists = emb_dists.copy()
-            # emb_dists[emb_dists > self.appearance_thresh] = 1.0
-            # emb_dists[ious_dists_mask] = 1.0
-            # dists = np.minimum(ious_dists, emb_dists)
-
-            # Popular ReID method (JDE / FairMOT)
-            # raw_emb_dists = matching.embedding_distance(strack_pool, detections)
-            # dists = matching.fuse_motion(self.kalman_filter, raw_emb_dists, strack_pool, detections)
-            # emb_dists = dists
-
-            # IoU making ReID
-            # dists = matching.embedding_distance(strack_pool, detections)
-            # dists[ious_dists_mask] = 1.0
-
-            # Improved Association Version (CD)
-            emb_dists = embedding_distance(strack_pool, detections) # high dets
-            dists = self.lambda_*d_ious_dists + (1-self.lambda_)*emb_dists
-            dists[ious_dists_mask] = self.match_thresh + 0.00001
+        if len(dets) > 0:
+            """Detections"""
+            if self.with_reid:
+                detections = [STrack(det, f, max_obs=self.max_obs) for (det, f) in zip(dets_first, features_high)]
+            else:
+                detections = [STrack(det, max_obs=self.max_obs) for (det) in np.array(dets_first)]
         else:
-            dists = d_ious_dists
-            dists[ious_dists_mask] = self.match_thresh + 0.00001
-
-        # Add in the low score detection boxes
+            detections = []
 
         # association the untrack to the low score detections
         if len(dets_second) > 0:
@@ -377,35 +369,82 @@ class ImprAssocTrack(BaseTracker):
                                  (det) in np.array(dets_second)]
         else:
             detections_second = []
-        dists_second = iou_distance(strack_pool, detections_second)
-        dists_second_mask = (dists_second > self.second_match_thresh) # this is what the paper used
-        dists_second[dists_second_mask] = self.second_match_thresh + 0.00001
 
+        global_detections_first = detections 
+        global_detections_second = detections_second
 
-        B = self.match_thresh/self.second_match_thresh
+        clustered_first_detections = group_stracks_by_cluster(global_detections_first)
+        clustered_second_detections = group_stracks_by_cluster(global_detections_second)
 
-        combined_dists = np.concatenate((dists, B*dists_second), axis=1)
+        global_sdet_remain = []
+        global_strack_pool = strack_pool
 
-        matches, track_conf_remain, det_remain = linear_assignment(combined_dists, thresh=self.match_thresh)
+        # for cid, detections in clustered_first_detections.items():
+        #     print(f"Cluster det_high idx {cid} with len {len(detections)}")
 
-        # concat detections so that it all works
-        detections = np.concatenate((detections, detections_second), axis=0)
+        # for cid, detections in clustered_second_detections.items():
+        #     print(f"Cluster det_high idx {cid} with len {len(detections)}")
 
-        for itracked, idet in matches:
-            track = strack_pool[itracked]
-            det = detections[idet]
-            if track.state == TrackState.Tracked:
-                track.update(detections[idet], self.frame_count)
-                activated_starcks.append(track)
+        for cid, detections in clustered_first_detections.items():
+            detections_second = clustered_second_detections.get(cid, [])
+
+            # Associate with high score detection boxes
+            d_ious_dists = d_iou_distance(strack_pool, detections)
+            ious = 1 - iou_distance(strack_pool, detections)
+            ious_dists_mask = (ious < self.proximity_thresh) # o_min in ImprAssoc paper
+
+            num_high_detections = len(detections)
+
+            if self.with_reid:
+                # Improved Association Version (CD)
+                emb_dists = embedding_distance(strack_pool, detections) # high dets
+                dists = self.lambda_*d_ious_dists + (1-self.lambda_)*emb_dists
+                dists[ious_dists_mask] = self.match_thresh + 0.00001
             else:
-                track.re_activate(det, self.frame_count, new_id=False)
-                refind_stracks.append(track)
+                dists = d_ious_dists
+                dists[ious_dists_mask] = self.match_thresh + 0.00001
+
+            # Add in the low score detection boxes
+
+            dists_second = iou_distance(strack_pool, detections_second)
+            dists_second_mask = (dists_second > self.second_match_thresh) # this is what the paper used
+            dists_second[dists_second_mask] = self.second_match_thresh + 0.00001
+
+
+            B = self.match_thresh/self.second_match_thresh
+
+            combined_dists = np.concatenate((dists, B*dists_second), axis=1)
+
+            matches, _, det_remain = linear_assignment(combined_dists, thresh=self.match_thresh)
+
+            # concat detections so that it all works
+            detections = np.concatenate((detections, detections_second), axis=0)
+
+            matched = []
+            for itracked, idet in matches:
+                track = strack_pool[itracked]
+                det = detections[idet]
+                matched.append(itracked)
+                if track.state == TrackState.Tracked:
+                    track.update(detections[idet], self.frame_count)
+                    activated_stracks.append(track)
+                else:
+                    track.re_activate(det, self.frame_count, new_id=False)
+                    refind_stracks.append(track)
+            
+            strack_pool = [t for i, t in enumerate(strack_pool) if i not in matched]
+                        
+            if len(det_remain) > 0:
+                sdet_remain = [detections[i] for i in det_remain]
+            else:
+                sdet_remain = []
+
+            global_sdet_remain.extend(sdet_remain)
 
         '''Deal with lost tracks'''
 
         # left over confirmed tracks get lost
-        for it in track_conf_remain:
-            track = strack_pool[it]
+        for track in strack_pool:
             if not track.state == TrackState.Lost:
                 track.mark_lost()
                 lost_stracks.append(track)
@@ -413,38 +452,37 @@ class ImprAssocTrack(BaseTracker):
         '''now do OAI from Improved Association paper'''
         # calc the iou between every unmatched det and all tracks if the max iou
         # for a det D is above overlap_thresh, discard it.
-        sdet_remain = [detections[i] for i in det_remain]
 
         if self.with_reid:
             # if we don't need to recompute features
             if (self.new_track_thresh >= self.track_high_thresh) and features_high is not None:
-                features = [features_high[i] for i in det_remain if i < num_high_detections]
+                features = [t.initial_feat for t in global_sdet_remain]
             else:
-                bboxes = [track.xyxy for track in sdet_remain]
+                bboxes = [track.xyxy for track in global_sdet_remain]
                 bboxes = np.array(bboxes)
                 # (Ndets x X) [512, 1024, 2048]
                 features = self.model.get_features(bboxes, img)
 
-        unmatched_overlap = 1 - iou_distance(strack_pool, sdet_remain)
+        unmatched_overlap = 1 - iou_distance(global_strack_pool, global_sdet_remain)
 
         for det_ind in range(unmatched_overlap.shape[1]): # loop over the rows
             if len(unmatched_overlap[:, det_ind]) != 0:
                 if np.max(unmatched_overlap[:, det_ind]) < self.overlap_thresh:
                     # now initialize it
-                    track = sdet_remain[det_ind]
+                    track = global_sdet_remain[det_ind]
                     if track.conf > self.new_track_thresh:
                         track.activate(self.kalman_filter, self.frame_count)
                         if self.with_reid:
                             track.update_features(features[det_ind])
-                        activated_starcks.append(track)
+                        activated_stracks.append(track)
             else:
                 # if no curr tracks, then init one
-                track = sdet_remain[det_ind]
+                track = global_sdet_remain[det_ind]
                 if track.conf > self.new_track_thresh:
                     track.activate(self.kalman_filter, self.frame_count)
                     if self.with_reid:
                         track.update_features(features[det_ind])
-                    activated_starcks.append(track)
+                    activated_stracks.append(track)
 
 
         """ Step 6: Update state"""
@@ -457,7 +495,7 @@ class ImprAssocTrack(BaseTracker):
         self.active_tracks = [
             t for t in self.active_tracks if t.state == TrackState.Tracked
         ]
-        self.active_tracks = joint_stracks(self.active_tracks, activated_starcks)
+        self.active_tracks = joint_stracks(self.active_tracks, activated_stracks)
         self.active_tracks = joint_stracks(self.active_tracks, refind_stracks)
         self.lost_stracks = sub_stracks(self.lost_stracks, self.active_tracks)
         self.lost_stracks.extend(lost_stracks)
