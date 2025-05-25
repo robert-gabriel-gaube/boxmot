@@ -1,12 +1,13 @@
 # Raif Olson
 
 import numpy as np
+import os
+import json
 from collections import deque
 from pathlib import Path
 from torch import device
 from collections import defaultdict
 from typing import List, Dict
-import os
 
 from boxmot.appearance.reid.auto_backend import ReidAutoBackend
 from boxmot.motion.cmc.sof import SOF
@@ -23,7 +24,7 @@ from boxmot.utils.misc import ramp_down, ramp_up
 class STrack(BaseTrack):
     shared_kalman = KalmanFilterXYWH()
 
-    def __init__(self, det, feat=None, feat_history=15, max_obs=15):
+    def __init__(self, det, is_high_confidence,feat=None, feat_history=15, max_obs=15):
         self.xywh = xyxy2xywh(det[0:4])  # (x1, y1, x2, y2) --> (xc, yc, w, h)
         self.conf = det[4]
         self.cls = det[5]
@@ -35,6 +36,7 @@ class STrack(BaseTrack):
         self.is_activated = False
         self.cls_hist = []  # (cls id, freq)
         self.update_cls(self.cls, self.conf)
+        self.is_high_confidence = is_high_confidence
         self.history_observations = deque([], maxlen=self.max_obs)
 
         self.tracklet_len = 0
@@ -307,6 +309,10 @@ class ImprAssocTrack(BaseTracker):
 
         self.cmc = SOF()
 
+        with open('/home/ubuntu/boxmot/experiments/thresh_config.json', 'r') as f:
+            self.clustering_config =json.load(f)
+         
+
     def save_hyperparameters(self, path: str):
         """
         Append current hyperparameters as one space-separated line
@@ -334,23 +340,51 @@ class ImprAssocTrack(BaseTracker):
             f.write(line)
 
     def update_hyperparameters(self, 
-                               track_high_thresh=0.6, 
-                               track_low_thresh=0.1, 
-                               new_track_thresh=0.7, 
                                match_thresh=0.65, 
                                second_match_thresh=0.19, 
-                               overlap_thresh=0.55,
                                lambda_=0.2,
                                proximity_thresh=0.1):
         
-        self.track_high_thresh = track_high_thresh
-        self.track_low_thresh = track_low_thresh
-        self.new_track_thresh = new_track_thresh
         self.match_thresh = match_thresh
         self.second_match_thresh = second_match_thresh
-        self.overlap_thresh = overlap_thresh
         self.lambda_ = lambda_
         self.proximity_thresh = proximity_thresh
+
+    def value_based_on_dict(self, cluster_size, value_dict):
+        if not value_dict['is_variable']:
+            return value_dict['static_value']
+        
+        if value_dict['is_ramp_up']:
+            return ramp_up(
+                cluster_size,
+                value_dict['cluster_min'],
+                value_dict['cluster_max'],
+                value_dict['val_min'],
+                value_dict['val_max']
+            )
+        else:
+            return ramp_down(
+                cluster_size,
+                value_dict['cluster_min'],
+                value_dict['cluster_max'],
+                value_dict['val_min'],
+                value_dict['val_max']
+            )
+
+    def cluster_hyperparameter_change(self, cluster_ind, cluster_size):
+        if cluster_ind == -1:
+            self.update_hyperparameters()
+        else:
+            self.update_hyperparameters(
+                match_thresh=self.value_based_on_dict(cluster_size, self.clustering_config['hyperparams']['match_thresh']),
+                second_match_thresh=self.value_based_on_dict(cluster_size, self.clustering_config['hyperparams']['second_match_thresh']),
+                lambda_=self.value_based_on_dict(cluster_size, self.clustering_config['hyperparams']['lambda_']),
+                proximity_thresh=self.value_based_on_dict(cluster_size, self.clustering_config['hyperparams']['proximity_thresh'])    
+            )
+            # with open("/home/ubuntu/boxmot/hyperparams.txt", 'a') as f:
+            #     f.write(f"Cid {cid} with size {cluster_size}\n")
+            # self.save_hyperparameters("/home/ubuntu/boxmot/hyperparams.txt")
+
 
     @BaseTracker.setup_decorator
     @BaseTracker.per_class_decorator
@@ -366,8 +400,8 @@ class ImprAssocTrack(BaseTracker):
         cluster_labels = cluster_detections(
             dets[:, :4],
             img.shape[:2],   
-            eps=0.07, 
-            min_samples=2
+            eps=self.clustering_config['cluster_config']['cluster_eps'], 
+            min_samples=self.clustering_config['cluster_config']['cluster_min_samples']
         )
 
         dets = np.hstack([dets, cluster_labels.reshape(-1, 1)]) 
@@ -427,16 +461,16 @@ class ImprAssocTrack(BaseTracker):
         if len(dets) > 0:
             """Detections"""
             if self.with_reid:
-                detections = [STrack(det, f, max_obs=self.max_obs) for (det, f) in zip(dets_first, features_high)]
+                detections = [STrack(det, True, f, max_obs=self.max_obs) for (det, f) in zip(dets_first, features_high)]
             else:
-                detections = [STrack(det, max_obs=self.max_obs) for (det) in np.array(dets_first)]
+                detections = [STrack(det, True, max_obs=self.max_obs) for (det) in np.array(dets_first)]
         else:
             detections = []
 
         # association the untrack to the low score detections
         if len(dets_second) > 0:
             '''Detections'''
-            detections_second = [STrack(det, max_obs=self.max_obs) for
+            detections_second = [STrack(det, False, max_obs=self.max_obs) for
                                  (det) in np.array(dets_second)]
         else:
             detections_second = []
@@ -450,35 +484,17 @@ class ImprAssocTrack(BaseTracker):
         global_sdet_remain = []
         global_strack_pool = strack_pool
 
-        with open("/home/ubuntu/boxmot/clusters.txt", 'a') as f:
-            f.write(f"Frame count: {self.frame_count}\n")
-            for cid, detections in clustered_first_detections.items():
-                f.write(f"Cluster det_high idx {cid} with len {len(detections)}\n")
+        # with open("/home/ubuntu/boxmot/clusters.txt", 'a') as f:
+        #     f.write(f"Frame count: {self.frame_count}\n")
+        #     for cid, detections in clustered_first_detections.items():
+        #         f.write(f"Cluster det_high idx {cid} with len {len(detections)}\n")
 
-            for cid, detections in clustered_second_detections.items():
-                f.write(f"Cluster det_high idx {cid} with len {len(detections)}\n")
-            f.write("\n")
+        #     for cid, detections in clustered_second_detections.items():
+        #         f.write(f"Cluster det_high idx {cid} with len {len(detections)}\n")
+        #     f.write("\n")
 
-        with open("/home/ubuntu/boxmot/hyperparams.txt", 'a') as f:
-            f.write("Start of frame \n")
-        
-        # self.update_hyperparameters(track_high_thresh=0.75,
-        #                                     track_low_thresh=0.2,
-        #                                     new_track_thresh=0.8,
-        #                                     match_thresh=0.55,
-        #                                     second_match_thresh=0.12,
-        #                                     overlap_thresh=0.45,
-        #                                     lambda_=0.1,
-        #                                     proximity_thresh=0.05)
-        # self.save_hyperparameters("/home/ubuntu/boxmot/hyperparams.txt")
-        # self.update_hyperparameters(track_high_thresh=0.65,
-        #                                     track_low_thresh=0.15,
-        #                                     new_track_thresh=0.75,
-        #                                     match_thresh=0.6,
-        #                                     second_match_thresh=0.15,
-        #                                     overlap_thresh=0.5,
-        #                                     lambda_=0.15,
-        #                                     proximity_thresh=0.075)
+        # with open("/home/ubuntu/boxmot/hyperparams.txt", 'a') as f:
+        #     f.write("Start of frame \n")
         
 
         for cid, detections in clustered_first_detections.items():
@@ -486,22 +502,7 @@ class ImprAssocTrack(BaseTracker):
 
             cluster_size = len(detections) + len(detections_second)
 
-            if cid == -1:
-                self.update_hyperparameters()
-            else:
-                self.update_hyperparameters(
-                    track_high_thresh=ramp_up(cluster_size, 3, 25, 0.6, 0.75),
-                    track_low_thresh=ramp_up(cluster_size, 3, 25, 0.1, 0.25),
-                    new_track_thresh=ramp_up(cluster_size, 3, 25, 0.7, 0.8),
-                    match_thresh=ramp_down(cluster_size, 3, 25, 0.5, 0.65),
-                    second_match_thresh=ramp_down(cluster_size, 3, 25, 0.12, 0.19),
-                    overlap_thresh=ramp_down(cluster_size, 3, 25, 0.45, 0.55),
-                    lambda_=ramp_down(cluster_size, 3, 25, 0.1, 0.2),
-                    proximity_thresh=ramp_down(cluster_size, 3, 25, 0.05, 0.1)    
-                )
-                with open("/home/ubuntu/boxmot/hyperparams.txt", 'a') as f:
-                    f.write(f"Cid {cid} with size {cluster_size}\n")
-                self.save_hyperparameters("/home/ubuntu/boxmot/hyperparams.txt")
+            self.cluster_hyperparameter_change(cid, cluster_size)
 
             # Associate with high score detection boxes
             d_ious_dists = d_iou_distance(strack_pool, detections)
@@ -568,7 +569,7 @@ class ImprAssocTrack(BaseTracker):
 
         if self.with_reid:
             # if we don't need to recompute features
-            if (self.new_track_thresh >= self.track_high_thresh) and features_high is not None:
+            if (self.new_track_thresh >= self.track_high_thresh):
                 features = [t.initial_feat for t in global_sdet_remain]
             else:
                 bboxes = [track.xyxy for track in global_sdet_remain]
@@ -583,18 +584,9 @@ class ImprAssocTrack(BaseTracker):
                 if np.max(unmatched_overlap[:, det_ind]) < self.overlap_thresh:
                     # now initialize it
                     track = global_sdet_remain[det_ind]
-                    if track.conf > self.new_track_thresh:
+                    if track.conf > self.new_track_thresh and track.is_high_confidence:
                         track.activate(self.kalman_filter, self.frame_count)
                         if self.with_reid:
-                            if features[det_ind] is None:
-                                print("NONE FEATURE HERE -> ")
-                                print("Global strack pool: ",len(global_strack_pool), global_strack_pool)
-                                print("Global sdet_remain ", len(global_sdet_remain), global_sdet_remain)
-                                print("Features: ")
-                                for feat in features:
-                                    print(feat is None, end=" ")
-                                print("Unmatched overlap ", unmatched_overlap.shape[1])
-
                             track.update_features(features[det_ind])
                         activated_stracks.append(track)
             else:
