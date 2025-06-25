@@ -483,7 +483,7 @@ def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None
                     LOGGER.error(f'Error processing file pair: {exc}')
     
     # Postprocess data with gsi if requested
-    if opt.gsi:
+    if True:
         gsi(mot_results_folder=opt.exp_folder_path)
 
     with open(opt.exp_folder_path / 'seqs_frame_nums.json', 'w') as f:

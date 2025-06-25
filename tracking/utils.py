@@ -112,12 +112,12 @@ def download_mot_eval_tools(val_tools_path):
     """
     val_tools_url = "https://github.com/JonathonLuiten/TrackEval"
 
-    try:
-        # Clone the repository
-        Repo.clone_from(val_tools_url, val_tools_path)
-        LOGGER.debug('Official MOT evaluation repo downloaded successfully.')
-    except exc.GitError as err:
-        LOGGER.debug(f'Evaluation repo already downloaded or an error occurred: {err}')
+    # try:
+    #     # Clone the repository
+    #     Repo.clone_from(val_tools_url, val_tools_path)
+    #     LOGGER.debug('Official MOT evaluation repo downloaded successfully.')
+    # except exc.GitError as err:
+    #     LOGGER.debug(f'Evaluation repo already downloaded or an error occurred: {err}')
 
     # Fix deprecated np.float, np.int & np.bool by replacing them with native Python types
     deprecated_types = {'np.float': 'float', 'np.int': 'int', 'np.bool': 'bool'}
@@ -319,6 +319,7 @@ def eval_setup(opt, val_tools_path):
         seq_paths = [p / 'img1' for p in mot_seqs_path.iterdir() if p.is_dir()]
     else:
         # Default handling for other datasets
+        print("Where tf is this", mot_seqs_path)
         seq_paths = [p / 'img1' for p in mot_seqs_path.iterdir() if p.is_dir()]
 
     # Set FPS for GT files
@@ -353,16 +354,21 @@ def convert_to_mot_format(results: Union[Results, np.ndarray], frame_idx: int) -
     # Check if results are not empty
     if results.size != 0:
         if isinstance(results, np.ndarray):
+            # print("Results, ", results)
             # Convert numpy array results to MOT format
             tlwh = ops.xyxy2ltwh(results[:, 0:4])
             frame_idx_column = np.full((results.shape[0], 1), frame_idx, dtype=np.int32)
+            minus_ones = np.full((results.shape[0], 1), -1, dtype=np.int32)
             mot_results = np.column_stack((
                 frame_idx_column, # frame index
                 results[:, 4].astype(np.int32),  # track id
                 tlwh.round().astype(np.int32),  # top,left,width,height
-                np.ones((results.shape[0], 1), dtype=np.int32),  # "not ignored"
-                results[:, 6].astype(np.int32),  # class
+                # np.ones((results.shape[0], 1), dtype=np.int32),  # "not ignored"
+                # results[:, 6].astype(np.int32),  # class
                 results[:, 5],  # confidence (float)
+                minus_ones,
+                minus_ones,
+                minus_ones
             ))
             return mot_results
         else:
@@ -404,4 +410,4 @@ def write_mot_results(txt_path: Path, mot_results: np.ndarray) -> None:
         if mot_results.size != 0:
             # Open the file in append mode and save the MOT results
             with open(str(txt_path), 'a') as file:
-                np.savetxt(file, mot_results, fmt='%d,%d,%d,%d,%d,%d,%d,%d,%.6f')
+                np.savetxt(file, mot_results, fmt='%d,%d,%d,%d,%d,%d,%.6f,%d,%d,%d')

@@ -3,6 +3,7 @@
 import numpy as np
 import os
 import json
+import cv2
 from collections import deque
 from pathlib import Path
 from torch import device
@@ -18,7 +19,7 @@ from boxmot.utils.matching import (embedding_distance, fuse_score,
                                    d_iou_distance)
 from boxmot.utils.ops import xywh2xyxy, xyxy2xywh
 from boxmot.trackers.basetracker import BaseTracker
-from boxmot.utils.clustering import cluster_detections, show_clusters
+from boxmot.utils.clustering import cluster_detections, show_clusters, count_clusters, cluster_detections_optics
 from boxmot.utils.misc import ramp_down, ramp_up
 
 class STrack(BaseTrack):
@@ -233,6 +234,13 @@ def group_stracks_by_cluster(stracks: List[STrack]) -> Dict[int, List[STrack]]:
     return dict(clusters)
 
 
+def show_image(img):
+    cv2.namedWindow("urmarire pe grupari", cv2.WINDOW_NORMAL)
+    cv2.resizeWindow("urmarire pe grupari", 1200, 680)
+    cv2.imshow("urmarire pe grupari", img)
+    if cv2.waitKey(1) == 27:        
+        return
+
 class ImprAssocTrack(BaseTracker):
     """
     ImprAssocTrack Tracker: A tracking algorithm that utilizes a combination of appearance and motion-based tracking.
@@ -371,7 +379,7 @@ class ImprAssocTrack(BaseTracker):
                 value_dict['val_max']
             )
 
-    def cluster_hyperparameter_change(self, cluster_ind, cluster_size):
+    def cluster_hyperparameter_change(self, cluster_ind : int, cluster_size : int):
         if cluster_ind == -1:
             self.update_hyperparameters()
         else:
@@ -396,6 +404,14 @@ class ImprAssocTrack(BaseTracker):
         refind_stracks = []
         lost_stracks = []
         removed_stracks = []
+
+        # Remove weirdly shaped detections
+        widths  = np.abs(dets[:, 2] - dets[:, 0])   # x2 - x1
+        heights = np.abs(dets[:, 3] - dets[:, 1])   # y2 - y1
+
+        good_mask = (widths <= 700) & (heights <= 700)
+
+        dets = dets[good_mask]
 
         cluster_labels = cluster_detections(
             dets[:, :4],
@@ -484,13 +500,19 @@ class ImprAssocTrack(BaseTracker):
         global_sdet_remain = []
         global_strack_pool = strack_pool
 
+        # cluster_count = count_clusters(dets)
+
         # with open("/home/ubuntu/boxmot/clusters.txt", 'a') as f:
         #     f.write(f"Frame count: {self.frame_count}\n")
-        #     for cid, detections in clustered_first_detections.items():
-        #         f.write(f"Cluster det_high idx {cid} with len {len(detections)}\n")
 
-        #     for cid, detections in clustered_second_detections.items():
-        #         f.write(f"Cluster det_high idx {cid} with len {len(detections)}\n")
+        #     for cid, count in cluster_count.items():
+        #         f.write(f'{count}, ')
+            
+        #     # for cid, detections in clustered_first_detections.items():
+        #     #     f.write(f"Cluster det_high idx {cid} with len {len(detections)}\n")
+
+        #     # for cid, detections in clustered_second_detections.items():
+        #     #     f.write(f"Cluster det_low idx {cid} with len {len(detections)}\n")
         #     f.write("\n")
 
         # with open("/home/ubuntu/boxmot/hyperparams.txt", 'a') as f:
@@ -631,6 +653,9 @@ class ImprAssocTrack(BaseTracker):
             outputs.append(output)
 
         outputs = np.asarray(outputs)
+
+        img = self.plot_results(img, True)
+        show_image(img)
         return outputs
 
 

@@ -57,7 +57,7 @@ class YoloXStrategy(YoloInterface):
         self.stride = 32  # max stride in YOLOX
 
         # model_type one of: 'yolox_n', 'yolox_s', 'yolox_m', 'yolox_l', 'yolox_x'
-        model_type = self.get_model_from_weigths(YOLOX_ZOO.keys(), model)
+        model_type = 'yolox_x'
 
         if model_type == 'yolox_n':
             exp = get_exp(None, 'yolox_nano')

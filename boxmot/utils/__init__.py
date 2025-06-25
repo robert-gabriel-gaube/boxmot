@@ -26,4 +26,4 @@ def only_main_thread(record):
     return threading.current_thread().name == "MainThread"
 
 logger.remove()
-logger.add(sys.stderr, filter=only_main_thread, colorize=True, level="INFO")
+logger.add(sys.stderr, filter=only_main_thread, colorize=True, level="DEBUG")

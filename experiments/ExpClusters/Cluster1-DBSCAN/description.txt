@@ -1,0 +1,19 @@
+Basically only made variable one hyperparameter while the 
+others remain static. 
+Also tried this with different cluster_min / max and eps for 
+the clustering algorithm
+
+Best experiment was Experiment_5 with increase in MOTA of 0.314
+
+Experiment_5 focused on match_thresh variation from 0.7 to 0.45
+on eps=0.07 with cluster_min=3, cluster_max=25
+
+Other tries:
+Experiment_4 MOTA increase: 0.018
+    0.7 to 0.5 with eps=0.05,  cluster_min/max = 3/10
+
+Experiment_3 MOTA increase: 0.116
+    0.7 to 0.5 with eps=0.055, cluster_min/max = 3/10
+
+Experiment_2 MOTA increase: 0.187
+    0.7 to 0.5 with eps=0.06,  cluster_min/max = 3/10

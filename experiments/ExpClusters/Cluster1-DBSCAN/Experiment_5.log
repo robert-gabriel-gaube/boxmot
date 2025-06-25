@@ -1,0 +1,54 @@
+
+Configuration (config.json):
+{
+    "cluster_config": {
+        "cluster_eps": 0.07,
+        "cluster_min_samples": 3
+    },
+    "experiment_description": "Changing match_threshold with 0.06 clusters",
+    "experiment_name": "Experiment_5",
+    "hyperparams": {
+        "lambda_": {
+            "cluster_max": 25,
+            "cluster_min": 3,
+            "is_ramp_up": false,
+            "is_variable": false,
+            "static_value": 0.2,
+            "val_max": 0.3,
+            "val_min": 0.1
+        },
+        "match_thresh": {
+            "cluster_max": 25,
+            "cluster_min": 3,
+            "is_ramp_up": false,
+            "is_variable": true,
+            "static_value": 0.65,
+            "val_max": 0.7,
+            "val_min": 0.5
+        },
+        "proximity_thresh": {
+            "cluster_max": 25,
+            "cluster_min": 3,
+            "is_ramp_up": false,
+            "is_variable": false,
+            "static_value": 0.1,
+            "val_max": 0.2,
+            "val_min": 0.05
+        },
+        "second_match_thresh": {
+            "cluster_max": 25,
+            "cluster_min": 3,
+            "is_ramp_up": false,
+            "is_variable": false,
+            "static_value": 0.19,
+            "val_max": 0.22,
+            "val_min": 0.12
+        }
+    }
+}
+
+Status: better
+0    73.231
+1    72.965
+2     0.266
+Name: MOTA, dtype: float64
