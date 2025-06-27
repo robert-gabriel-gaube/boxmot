@@ -26,6 +26,7 @@ from boxmot.utils.checks import RequirementsChecker
 from boxmot.utils.torch_utils import select_device
 from boxmot.utils.misc import increment_path
 from boxmot.postprocessing.gsi import gsi
+from boxmot.trackers.imprassoc.imprassoctrack import ImprAssocTrack
 
 from ultralytics import YOLO
 from ultralytics.data.loaders import LoadImagesAndVideos
@@ -249,14 +250,10 @@ def generate_mot_results(args: argparse.Namespace, config_dict: dict = None) -> 
         dict[str, np.ndarray]: {seq_name: array} with frame ids used for MOT
     """
     args.device = select_device(args.device)
-    tracker = create_tracker(
-        args.tracking_method,
-        TRACKER_CONFIGS / (args.tracking_method + '.yaml'),
-        args.reid_model[0].with_suffix('.pt'),
-        args.device,
-        False,
-        False,
-        config_dict
+    tracker = ImprAssocTrack(
+        opt.reid_model[0].with_suffix('.pt'), 
+        args.device, 
+        False
     )
 
     with open(args.dets_file_path, 'r') as file:
@@ -326,7 +323,7 @@ def generate_mot_results(args: argparse.Namespace, config_dict: dict = None) -> 
 
     write_mot_results(txt_path, all_mot_results)
 
-    return seq_frame_nums
+    return seq_frame_nums, tracker.frames_list
 
 
 def parse_mot_results(results: str) -> dict:
@@ -404,7 +401,6 @@ def run_generate_dets_embs(opt: argparse.Namespace) -> None:
     Args:
         opt (Namespace): Parsed command line arguments.
     """
-    os.makedirs("cluster_viz", exist_ok=True)
 
     LOGGER.info(f"y in {opt.yolo_model}")
     mot_folder_paths = sorted([item for item in Path(opt.source).iterdir()])
@@ -427,8 +423,7 @@ def process_single_mot(opt: argparse.Namespace, d: Path, e: Path, evolve_config:
     new_opt = copy.deepcopy(opt)
     new_opt.dets_file_path = d
     new_opt.embs_file_path = e
-    frames_dict = generate_mot_results(new_opt, evolve_config)
-    return frames_dict
+    return generate_mot_results(new_opt, evolve_config)
 
 def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None) -> None:
     """
@@ -457,31 +452,8 @@ def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None
         
         LOGGER.info(f"\nStarting tracking on:\n\t{opt.source}\nwith preloaded dets\n\t({dets_folder.relative_to(ROOT)})\nand embs\n\t({embs_folder.relative_to(ROOT)})\nusing\n\t{opt.tracking_method}")
         
-        # process_single_mot(opt, dets_file_paths[0], embs_file_paths[0], evolve_config)
+        seqs_frame_nums, frames_list = process_single_mot(opt, dets_file_paths[0], embs_file_paths[0], evolve_config)
 
-        tasks = []
-        # Create a thread pool to run each file pair in parallel
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            for d, e in zip(dets_file_paths, embs_file_paths):
-                mot_result_path = exp_folder_path / (d.stem + '.txt')
-                if mot_result_path.exists():
-                    if prompt_overwrite('MOT Result', mot_result_path, opt.ci):
-                        LOGGER.info(f'Overwriting MOT result for {d.stem}...')
-                    else:
-                        LOGGER.info(f'Skipping MOT result generation for {d.stem} as it already exists.')
-                        continue
-                # Submit the task to process this file pair in parallel
-                tasks.append(executor.submit(process_single_mot, opt, d, e, evolve_config))
-            
-            # Dict with {seq_name: [frame_nums]}
-            seqs_frame_nums = {}
-            # Wait for all tasks to complete and log any exceptions
-            for future in concurrent.futures.as_completed(tasks):
-                try:
-                    seqs_frame_nums.update(future.result())
-                except Exception as exc:
-                    LOGGER.error(f'Error processing file pair: {exc}')
-    
     # Postprocess data with gsi if requested
     if opt.gsi:
         gsi(mot_results_folder=opt.exp_folder_path)
@@ -517,7 +489,7 @@ def run_all(opt: argparse.Namespace) -> None:
     """
     run_generate_dets_embs(opt)
     run_generate_mot_results(opt)
-    run_trackeval(opt)
+    # run_trackeval(opt)
 
 
 def parse_opt() -> argparse.Namespace:

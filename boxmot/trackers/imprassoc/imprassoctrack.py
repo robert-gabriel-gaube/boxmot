@@ -316,6 +316,7 @@ class ImprAssocTrack(BaseTracker):
             self.model = rab.get_backend()
 
         self.cmc = SOF()
+        self.frames_list = []
 
         with open('/contents/boxmot/experiments/thresh_config.json', 'r') as f:
             self.clustering_config =json.load(f)
@@ -628,7 +629,7 @@ class ImprAssocTrack(BaseTracker):
         outputs = np.asarray(outputs)
 
         img = self.plot_results(img, True)
-        show_image(img)
+        self.frames_list.append(img)
         return outputs
 
 

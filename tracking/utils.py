@@ -319,7 +319,6 @@ def eval_setup(opt, val_tools_path):
         seq_paths = [p / 'img1' for p in mot_seqs_path.iterdir() if p.is_dir()]
     else:
         # Default handling for other datasets
-        print("Where tf is this", mot_seqs_path)
         seq_paths = [p / 'img1' for p in mot_seqs_path.iterdir() if p.is_dir()]
 
     # Set FPS for GT files

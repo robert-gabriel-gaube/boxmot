@@ -70,4 +70,5 @@ def create_tracker(tracker_type, tracker_config=None, reid_weights=None, device=
         tracker_args['per_class'] = per_class
 
     # Return the instantiated tracker class with arguments
+    print(tracker_args)
     return tracker_class(**tracker_args)
