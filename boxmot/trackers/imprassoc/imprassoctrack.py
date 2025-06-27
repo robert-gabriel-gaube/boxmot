@@ -317,7 +317,7 @@ class ImprAssocTrack(BaseTracker):
 
         self.cmc = SOF()
 
-        with open('/home/ubuntu/boxmot/experiments/thresh_config.json', 'r') as f:
+        with open('/contents/boxmot/experiments/thresh_config.json', 'r') as f:
             self.clustering_config =json.load(f)
          
 
@@ -326,10 +326,8 @@ class ImprAssocTrack(BaseTracker):
         Append current hyperparameters as one space-separated line
         to the given file (will create it if missing).
         """
-        # ensure directory exists
         os.makedirs(os.path.dirname(path), exist_ok=True)
 
-        # pack the values in the desired order
         vals = [
             self.track_high_thresh,
             self.track_low_thresh,
@@ -340,10 +338,8 @@ class ImprAssocTrack(BaseTracker):
             self.lambda_,
             self.proximity_thresh,
         ]
-        # build the line
         line = " ".join(str(v) for v in vals) + "\n"
 
-        # append
         with open(path, "a") as f:
             f.write(line)
 
@@ -389,10 +385,6 @@ class ImprAssocTrack(BaseTracker):
                 lambda_=self.value_based_on_dict(cluster_size, self.clustering_config['hyperparams']['lambda_']),
                 proximity_thresh=self.value_based_on_dict(cluster_size, self.clustering_config['hyperparams']['proximity_thresh'])    
             )
-            # with open("/home/ubuntu/boxmot/hyperparams.txt", 'a') as f:
-            #     f.write(f"Cid {cid} with size {cluster_size}\n")
-            # self.save_hyperparameters("/home/ubuntu/boxmot/hyperparams.txt")
-
 
     @BaseTracker.setup_decorator
     @BaseTracker.per_class_decorator
@@ -498,26 +490,7 @@ class ImprAssocTrack(BaseTracker):
         clustered_second_detections = group_stracks_by_cluster(global_detections_second)
 
         global_sdet_remain = []
-        global_strack_pool = strack_pool
-
-        # cluster_count = count_clusters(dets)
-
-        # with open("/home/ubuntu/boxmot/clusters.txt", 'a') as f:
-        #     f.write(f"Frame count: {self.frame_count}\n")
-
-        #     for cid, count in cluster_count.items():
-        #         f.write(f'{count}, ')
-            
-        #     # for cid, detections in clustered_first_detections.items():
-        #     #     f.write(f"Cluster det_high idx {cid} with len {len(detections)}\n")
-
-        #     # for cid, detections in clustered_second_detections.items():
-        #     #     f.write(f"Cluster det_low idx {cid} with len {len(detections)}\n")
-        #     f.write("\n")
-
-        # with open("/home/ubuntu/boxmot/hyperparams.txt", 'a') as f:
-        #     f.write("Start of frame \n")
-        
+        global_strack_pool = strack_pool    
 
         for cid, detections in clustered_first_detections.items():
             detections_second = clustered_second_detections.get(cid, [])

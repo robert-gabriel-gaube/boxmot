@@ -483,7 +483,7 @@ def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None
                     LOGGER.error(f'Error processing file pair: {exc}')
     
     # Postprocess data with gsi if requested
-    if True:
+    if opt.gsi:
         gsi(mot_results_folder=opt.exp_folder_path)
 
     with open(opt.exp_folder_path / 'seqs_frame_nums.json', 'w') as f:
@@ -515,7 +515,7 @@ def run_all(opt: argparse.Namespace) -> None:
     Args:
         opt (Namespace): Parsed command line arguments.
     """
-    # run_generate_dets_embs(opt)
+    run_generate_dets_embs(opt)
     run_generate_mot_results(opt)
     run_trackeval(opt)
 
@@ -582,19 +582,6 @@ def parse_opt() -> argparse.Namespace:
 
 if __name__ == "__main__":
     opt = parse_opt()
-    
-    # download MOT benchmark
-    download_mot_eval_tools(opt.val_tools_path)
-
-    if not Path(opt.source).exists():
-        zip_path = download_mot_dataset(opt.val_tools_path, opt.benchmark)
-        unzip_mot_dataset(zip_path, opt.val_tools_path, opt.benchmark)
-
-    if opt.benchmark == 'MOT17':
-        cleanup_mot17(opt.source)
-
-    if opt.split_dataset:
-        opt.source, opt.benchmark = split_dataset(opt.source)
 
     if opt.command == 'generate_dets_embs':
         run_generate_dets_embs(opt)
