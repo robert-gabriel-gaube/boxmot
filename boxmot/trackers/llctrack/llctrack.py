@@ -13,7 +13,7 @@ from typing import List, Dict
 from boxmot.appearance.reid.auto_backend import ReidAutoBackend
 from boxmot.motion.cmc.sof import SOF
 from boxmot.motion.kalman_filters.aabb.xywh_kf import KalmanFilterXYWH
-from boxmot.trackers.imprassoc.basetrack import BaseTrack, TrackState
+from boxmot.trackers.llctrack.basetrack import BaseTrack, TrackState
 from boxmot.utils.matching import (embedding_distance, fuse_score,
                                    iou_distance, linear_assignment,
                                    d_iou_distance)
@@ -233,9 +233,10 @@ def group_stracks_by_cluster(stracks: List[STrack]) -> Dict[int, List[STrack]]:
         clusters[cid].append(tr)
     return dict(clusters)
 
-class ImprAssocTrack(BaseTracker):
+class LLCTrack(BaseTracker):
     """
-    ImprAssocTrack Tracker: A tracking algorithm that utilizes a combination of appearance and motion-based tracking.
+    LLCTrack Tracker: A tracking algorithm that utilizes a combination of appearance and motion-based tracking.
+    In addition it runs tracking on clusters.
 
     Args:
         model_weights (str): Path to the model weights for ReID (Re-Identification).
@@ -261,6 +262,7 @@ class ImprAssocTrack(BaseTracker):
         reid_weights: Path,
         device: device,
         half: bool,
+        config_path: Path,
         per_class: bool = False,
         track_high_thresh: float = 0.6,
         track_low_thresh: float = 0.1,
@@ -310,7 +312,7 @@ class ImprAssocTrack(BaseTracker):
         self.cmc = SOF()
         self.frames_list = []
 
-        with open('/home/ubuntu/boxmot/experiments/thresh_config.json', 'r') as f:
+        with open(config_path, 'r') as f:
             self.clustering_config =json.load(f)
          
 

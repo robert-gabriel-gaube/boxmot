@@ -237,7 +237,7 @@ class BaseTracker(ABC):
         
         return bgr
 
-    def plot_box_on_img(self, img: np.ndarray, box: tuple, conf: float, cls: int, id: int, thickness: int = 2, fontscale: float = 0.5) -> np.ndarray:
+    def plot_box_on_img(self, img: np.ndarray, box: tuple, cluster: int, id: int, thickness: int = 2, fontscale: float = 0.5) -> np.ndarray:
         """
         Draws a bounding box with ID, confidence, and class information on an image.
 
@@ -266,7 +266,7 @@ class BaseTracker(ABC):
 
             img = cv.putText(
                 img,
-                f'id: {int(id)}, conf: {conf:.2f}, c: {int(cls)}, a: {box[4]:.2f}',
+                f'identitate: {int(id)}, grupare: {cluster}',
                 (int(box[0]), int(box[1]) - 10),
                 cv.FONT_HERSHEY_SIMPLEX,
                 fontscale,
@@ -284,7 +284,7 @@ class BaseTracker(ABC):
             )
             img = cv.putText(
                 img,
-                f'id: {int(id)}, conf: {conf:.2f}, c: {int(cls)}',
+                f'identitate: {int(id)}',
                 (int(box[0]), int(box[1]) - 10),
                 cv.FONT_HERSHEY_SIMPLEX,
                 fontscale,
@@ -357,7 +357,7 @@ class BaseTracker(ABC):
                     if a.history_observations:
                         if len(a.history_observations) > 2:
                             box = a.history_observations[-1]
-                            img = self.plot_box_on_img(img, box, a.conf, a.cls, a.id, thickness, fontscale)
+                            img = self.plot_box_on_img(img, box, a.cluster_ind, a.id, thickness, fontscale)
                             if show_trajectories:
                                 img = self.plot_trackers_trajectories(img, a.history_observations, a.id)
         else:
@@ -365,7 +365,7 @@ class BaseTracker(ABC):
                 if a.history_observations:
                     if len(a.history_observations) > 2:
                         box = a.history_observations[-1]
-                        img = self.plot_box_on_img(img, box, a.conf, a.cls, a.id, thickness, fontscale)
+                        img = self.plot_box_on_img(img, box, a.cluster_ind, a.id, thickness, fontscale)
                         if show_trajectories:
                             img = self.plot_trackers_trajectories(img, a.history_observations, a.id)
                 

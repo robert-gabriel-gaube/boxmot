@@ -8,26 +8,18 @@ from tqdm import tqdm
 import configparser
 import shutil
 import json
-import queue
-import select
 import re
 import os
 import torch
-from functools import partial
 import threading
 import sys
 import copy
-import concurrent.futures
-import matplotlib.pyplot as plt
 
-from boxmot import TRACKERS
-from boxmot.tracker_zoo import create_tracker
 from boxmot.utils import ROOT, WEIGHTS, TRACKER_CONFIGS, logger as LOGGER, EXAMPLES, DATA
 from boxmot.utils.checks import RequirementsChecker
 from boxmot.utils.torch_utils import select_device
 from boxmot.utils.misc import increment_path
-from boxmot.postprocessing.gsi import gsi
-from boxmot.trackers.imprassoc.imprassoctrack import ImprAssocTrack
+from boxmot.trackers.llctrack.llctrack import LLCTrack
 
 from ultralytics import YOLO
 from ultralytics.data.loaders import LoadImagesAndVideos
@@ -250,11 +242,13 @@ def generate_mot_results(args: argparse.Namespace, config_dict: dict = None) -> 
     Returns:
         dict[str, np.ndarray]: {seq_name: array} with frame ids used for MOT
     """
+
     args.device = select_device(args.device)
-    tracker = ImprAssocTrack(
+    tracker = LLCTrack(
         opt.reid_model[0].with_suffix('.pt'), 
         args.device, 
-        False
+        False,
+        config_path=str(opt.config_file[0])
     )
 
     with open(args.dets_file_path, 'r') as file:
@@ -453,14 +447,7 @@ def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None
         
         LOGGER.info(f"\nStarting tracking on:\n\t{opt.source}\nwith preloaded dets\n\t({dets_folder.relative_to(ROOT)})\nand embs\n\t({embs_folder.relative_to(ROOT)})\nusing\n\t{opt.tracking_method}")
         
-        seqs_frame_nums, frames_list = process_single_mot(opt, dets_file_paths[0], embs_file_paths[0], evolve_config)
-
-    # Postprocess data with gsi if requested
-    if opt.gsi:
-        gsi(mot_results_folder=opt.exp_folder_path)
-
-    with open(opt.exp_folder_path / 'seqs_frame_nums.json', 'w') as f:
-        json.dump(seqs_frame_nums, f)
+        _, frames_list = process_single_mot(opt, dets_file_paths[0], embs_file_paths[0], evolve_config)
 
     return frames_list
 
@@ -498,6 +485,7 @@ def parse_opt() -> argparse.Namespace:
 
     # Global arguments
     parser.add_argument('--yolo-model', nargs='+', type=Path, default=[WEIGHTS / 'yolov8n.pt'], help='yolo model path')
+    parser.add_argument('--config_file', nargs='+', type=Path, help='config file path')
     parser.add_argument('--reid-model', nargs='+', type=Path, default=[WEIGHTS / 'osnet_x0_25_msmt17.pt'], help='reid model path')
     parser.add_argument('--source', type=str, help='file/dir/URL/glob, 0 for webcam')
     parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=None, help='inference size h,w')
@@ -538,7 +526,7 @@ def parse_opt() -> argparse.Namespace:
     generate_mot_results_parser = subparsers.add_parser('generate_mot_results', help='Generate MOT results')
     generate_mot_results_parser.add_argument('--yolo-model', nargs='+', type=Path, default=WEIGHTS / 'yolov8n.pt', help='yolo model path')
     generate_mot_results_parser.add_argument('--reid-model', nargs='+', type=Path, default=WEIGHTS / 'osnet_x0_25_msmt17.pt', help='reid model path')
-    generate_mot_results_parser.add_argument('--tracking-method', type=str, default='deepocsort', help='deepocsort, botsort, strongsort, ocsort, bytetrack, imprassoc, boosttrack')
+    generate_mot_results_parser.add_argument('--tracking-method', type=str, default='llctrack', help='deepocsort, botsort, strongsort, ocsort, bytetrack, llctrack, boosttrack')
     generate_mot_results_parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[640], help='inference size h,w')
 
     # Subparser for trackeval
