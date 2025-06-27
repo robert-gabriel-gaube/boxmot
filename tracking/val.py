@@ -18,6 +18,7 @@ import threading
 import sys
 import copy
 import concurrent.futures
+import matplotlib.pyplot as plt
 
 from boxmot import TRACKERS
 from boxmot.tracker_zoo import create_tracker
@@ -461,6 +462,7 @@ def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None
     with open(opt.exp_folder_path / 'seqs_frame_nums.json', 'w') as f:
         json.dump(seqs_frame_nums, f)
 
+    return frames_list
 
 def run_trackeval(opt: argparse.Namespace) -> dict:
     """
@@ -480,7 +482,7 @@ def run_trackeval(opt: argparse.Namespace) -> dict:
     return hota_mota_idf1
 
 
-def run_all(opt: argparse.Namespace) -> None:
+def run_all(opt: argparse.Namespace):
     """
     Runs all stages of the pipeline: generate_dets_embs, generate_mot_results, and trackeval.
 
@@ -488,8 +490,7 @@ def run_all(opt: argparse.Namespace) -> None:
         opt (Namespace): Parsed command line arguments.
     """
     run_generate_dets_embs(opt)
-    run_generate_mot_results(opt)
-    # run_trackeval(opt)
+    return run_generate_mot_results(opt)
 
 
 def parse_opt() -> argparse.Namespace:
@@ -551,15 +552,9 @@ def parse_opt() -> argparse.Namespace:
 
     return opt
 
+import pickle
 
-if __name__ == "__main__":
-    opt = parse_opt()
+opt = parse_opt()
+frames_list = run_all(opt)
+pickle.dump(frames_list, open('frames.pkl','wb'))
 
-    if opt.command == 'generate_dets_embs':
-        run_generate_dets_embs(opt)
-    elif opt.command == 'generate_mot_results':
-        run_generate_mot_results(opt)
-    elif opt.command == 'trackeval':
-        run_trackeval(opt)
-    else:
-        run_all(opt)

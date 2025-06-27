@@ -318,7 +318,7 @@ class ImprAssocTrack(BaseTracker):
         self.cmc = SOF()
         self.frames_list = []
 
-        with open('/contents/boxmot/experiments/thresh_config.json', 'r') as f:
+        with open('/content/boxmot/experiments/thresh_config.json', 'r') as f:
             self.clustering_config =json.load(f)
          
 
