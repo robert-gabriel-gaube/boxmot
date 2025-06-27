@@ -233,14 +233,6 @@ def group_stracks_by_cluster(stracks: List[STrack]) -> Dict[int, List[STrack]]:
         clusters[cid].append(tr)
     return dict(clusters)
 
-
-def show_image(img):
-    cv2.namedWindow("urmarire pe grupari", cv2.WINDOW_NORMAL)
-    cv2.resizeWindow("urmarire pe grupari", 1200, 680)
-    cv2.imshow("urmarire pe grupari", img)
-    if cv2.waitKey(1) == 27:        
-        return
-
 class ImprAssocTrack(BaseTracker):
     """
     ImprAssocTrack Tracker: A tracking algorithm that utilizes a combination of appearance and motion-based tracking.
@@ -318,7 +310,7 @@ class ImprAssocTrack(BaseTracker):
         self.cmc = SOF()
         self.frames_list = []
 
-        with open('/content/boxmot/experiments/thresh_config.json', 'r') as f:
+        with open('/home/ubuntu/boxmot/experiments/thresh_config.json', 'r') as f:
             self.clustering_config =json.load(f)
          
 
@@ -629,7 +621,7 @@ class ImprAssocTrack(BaseTracker):
         outputs = np.asarray(outputs)
 
         img = self.plot_results(img, True)
-        if self.frame_count % 5 is 0:
+        if self.frame_count % 5 == 0:
             self.frames_list.append(img)
         return outputs
 
