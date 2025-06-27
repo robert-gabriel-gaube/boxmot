@@ -629,7 +629,8 @@ class ImprAssocTrack(BaseTracker):
         outputs = np.asarray(outputs)
 
         img = self.plot_results(img, True)
-        self.frames_list.append(img)
+        if self.frame_count % 5 is 0:
+            self.frames_list.append(img)
         return outputs
 
 
